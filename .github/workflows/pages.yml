@@ -1,0 +1,74 @@
+name: Preview on GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Resolve site URL
+        env:
+          # Если появится свой домен — задайте переменную репозитория
+          # Settings → Secrets and variables → Actions → Variables:
+          #   CUSTOM_DOMAIN = aerotech74.ru
+          CUSTOM_DOMAIN: ${{ vars.CUSTOM_DOMAIN }}
+        run: |
+          OWNER="${GITHUB_REPOSITORY%/*}"
+          REPO="${GITHUB_REPOSITORY#*/}"
+          if [ -n "$CUSTOM_DOMAIN" ]; then
+            echo "SITE=https://${CUSTOM_DOMAIN}" >> "$GITHUB_ENV"
+            echo "BASE=" >> "$GITHUB_ENV"
+          elif [ "${REPO,,}" = "${OWNER,,}.github.io" ]; then
+            echo "SITE=https://${OWNER}.github.io" >> "$GITHUB_ENV"
+            echo "BASE=" >> "$GITHUB_ENV"
+          else
+            echo "SITE=https://${OWNER}.github.io/${REPO}" >> "$GITHUB_ENV"
+            echo "BASE=/${REPO}" >> "$GITHUB_ENV"
+          fi
+          # Тестовая площадка закрыта от индексации.
+          # При запуске на боевом домене удалите строку ниже.
+          echo "NOINDEX=1" >> "$GITHUB_ENV"
+
+      - name: Build static site
+        run: |
+          python3 multi_src/build.py
+          touch multi/.nojekyll
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: multi
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
